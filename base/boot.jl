@@ -196,6 +196,10 @@ macro _noinline_meta()
     Expr(:meta, :noinline)
 end
 
+macro nospecialize(x)
+    Expr(:meta, :nospecialize, x)
+end
+
 struct BoundsError        <: Exception
     a::Any
     i::Any

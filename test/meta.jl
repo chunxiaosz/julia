@@ -144,3 +144,14 @@ baremodule B
 end
 @test B.x == 3
 @test B.M.x == 4
+
+# specialization annotations
+function _nospec_some_args(@nospecialize(x), y, @nospecialize z::Int)
+end
+@test first(methods(_nospec_some_args)).nospec == 5
+@test first(methods(_nospec_some_args)).sig == Tuple{typeof(_nospec_some_args),Any,Any,Int}
+function _nospec_some_args2(x, y, z)
+    @nospecialize x y
+    return 0
+end
+@test first(methods(_nospec_some_args2)).nospec == 3

@@ -17,6 +17,29 @@ end
 macro _noinline_meta()
     Expr(:meta, :noinline)
 end
+"""
+    @nospecialize
+
+Applied to a function argument name, hints to the compiler that the method
+should not be specialized for different types of the specified argument.
+This is only a hint for avoiding excess code generation.
+Can be applied to an argument within a formal argument list, or in the
+function body:
+
+```julia
+function example_function(@nospecialize x)
+    ...
+end
+
+function example_function(x, y, z)
+    @nospecialize x y
+    ...
+end
+```
+"""
+macro nospecialize(var, vars...)
+    Expr(:meta, :nospecialize, var, vars...)
+end
 macro _pure_meta()
     Expr(:meta, :pure)
 end

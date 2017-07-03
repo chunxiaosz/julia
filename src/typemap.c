@@ -19,7 +19,7 @@ extern "C" {
 // compute whether the specificity of this type is equivalent to Any in the sort order
 static int jl_is_any(jl_value_t *t1)
 {
-    return (t1 == (jl_value_t*)jl_any_type || t1 == jl_ANY_flag ||
+    return (t1 == (jl_value_t*)jl_any_type ||
             (jl_is_typevar(t1) &&
              ((jl_tvar_t*)t1)->ub == (jl_value_t*)jl_any_type));
 }
@@ -69,7 +69,7 @@ static int sig_match_by_type_simple(jl_value_t **types, size_t n, jl_tupletype_t
                 return 0;
             }
         }
-        else if (decl == (jl_value_t*)jl_any_type || decl == jl_ANY_flag) {
+        else if (decl == (jl_value_t*)jl_any_type) {
         }
         else {
             if (jl_is_type_type(a)) // decl is not Type, because it would be caught above
@@ -122,8 +122,7 @@ static inline int sig_match_simple(jl_value_t **args, size_t n, jl_value_t **sig
     for (i = 0; i < lensig; i++) {
         jl_value_t *decl = sig[i];
         jl_value_t *a = args[i];
-        if (decl == (jl_value_t*)jl_any_type || decl == jl_ANY_flag ||
-            ((jl_value_t*)jl_typeof(a) == decl)) {
+        if (decl == (jl_value_t*)jl_any_type || ((jl_value_t*)jl_typeof(a) == decl)) {
             /*
               we are only matching concrete types here, and those types are
               hash-consed, so pointer comparison should work.

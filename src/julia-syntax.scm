@@ -1026,6 +1026,14 @@
                                                 (string "function Base.broadcast(::typeof(" (deparse op_) "), ...)")))
                         op_))
                   (name (if op '(|.| Base (inert broadcast)) name))
+                  (annotations (map (lambda (a) `(meta nospecialize ,(arg-name a)))
+                                    (filter nospecialize-meta? argl)))
+                  (body (if (null? annotations)
+                            (caddr e)
+                            (insert-after-meta (caddr e) annotations)))
+                  (argl (map (lambda (a)
+                               (if (nospecialize-meta? a) (caddr a) a))
+                             argl))
                   (argl (if op (cons `(|::| (call (core Typeof) ,op)) argl) argl))
                   (sparams (map analyze-typevar (cond (has-sp (cddr head))
                                                       (where  where)
@@ -1046,7 +1054,7 @@
                   (name    (if (or (decl? name) (and (pair? name) (eq? (car name) 'curly)))
                                #f name)))
              (expand-forms
-              (method-def-expr name sparams argl (caddr e) isstaged rett))))
+              (method-def-expr name sparams argl body isstaged rett))))
           (else
            (error (string "invalid assignment location \"" (deparse name) "\""))))))
 
@@ -1170,7 +1178,7 @@
                              (|::| __module__ (core Module))
                              ,@(map (lambda (v)
                                       (if (symbol? v)
-                                          `(|::| ,v (core ANY))
+                                          `(|::| ,v (core ANY))  ;; TODO: ANY deprecation
                                           v))
                                     anames))
                        ,@(cddr e)))))
@@ -3780,6 +3788,9 @@ f(x) = yt(x)
           ((and (pair? e) (eq? (car e) 'outerref))
            (let ((idx (get sp-table (cadr e) #f)))
                 (if idx `(static_parameter ,idx) (cadr e))))
+          ((and (length> e 2) (eq? (car e) 'meta) (eq? (cadr e) 'nospecialize))
+           ;; convert nospecialize vars to slot numbers
+           `(meta nospecialize ,@(map renumber-slots (cddr e))))
           ((or (atom? e) (quoted? e)) e)
           ((ssavalue? e)
            (let ((idx (or (get ssavalue-table (cadr e) #f)
