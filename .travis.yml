@@ -1,5 +1,5 @@
 language: cpp
-sudo: false
+sudo: required
 matrix:
   include:
     - os: linux
@@ -48,6 +48,7 @@ branches:
     - master
     - /^release-.*/
     - /^v\d+\.\d+\.\d+$/
+    - tk/travis-test
 notifications:
     email: false
     irc:
