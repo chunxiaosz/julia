@@ -1,5 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
+using Base: get_world_counter
+
 # DO NOT ALTER ORDER OR SPACING OF METHODS BELOW
 const lineoffset = @__LINE__
 ambig(x, y) = 1
@@ -9,22 +11,22 @@ ambig(x::Int, y::Int) = 4
 ambig(x::Number, y) = 5
 # END OF LINE NUMBER SENSITIVITY
 
+using LinearAlgebra, SparseArrays
+
 # For curmod_*
 include("testenv.jl")
 
-ambigs = Any[[], [3], [2,5], [], [3]]
-
-mt = methods(ambig)
-
+getline(m::Core.TypeMapEntry) = getline(m.func::Method)
 getline(m::Method) = m.line - lineoffset
 
-for m in mt
+ambigs = Any[[], [3], [2, 5], [], [3]]
+for m in methods(ambig)
     ln = getline(m)
     atarget = ambigs[ln]
     if isempty(atarget)
         @test m.ambig === nothing
     else
-        aln = Int[getline(a) for a in m.ambig]
+        aln = Int[getline(a::Core.TypeMapEntry) for a in m.ambig]
         @test sort(aln) == atarget
     end
 end
@@ -65,20 +67,24 @@ end
 
 ## Other ways of accessing functions
 # Test that non-ambiguous cases work
-io = IOBuffer()
-@test precompile(ambig, (Int, Int)) == true
-cfunction(ambig, Int, (Int, Int))
-@test length(code_lowered(ambig, (Int, Int))) == 1
-@test length(code_typed(ambig, (Int, Int))) == 1
-code_llvm(io, ambig, (Int, Int))
-code_native(io, ambig, (Int, Int))
+let io = IOBuffer()
+    @test precompile(ambig, (Int, Int)) == true
+    cf = @eval @cfunction(ambig, Int, (Int, Int))
+    @test ccall(cf, Int, (Int, Int), 1, 2) == 4
+    @test length(code_lowered(ambig, (Int, Int))) == 1
+    @test length(code_typed(ambig, (Int, Int))) == 1
+end
 
 # Test that ambiguous cases fail appropriately
-@test precompile(ambig, (UInt8, Int)) == false
-cfunction(ambig, Int, (UInt8, Int))  # test for a crash (doesn't throw an error)
-@test_throws ErrorException which(ambig, (UInt8, Int))
-@test_throws ErrorException code_llvm(io, ambig, (UInt8, Int))
-@test_throws ErrorException code_native(io, ambig, (UInt8, Int))
+let io = IOBuffer()
+    @test precompile(ambig, (UInt8, Int)) == false
+    cf = @eval @cfunction(ambig, Int, (UInt8, Int))  # test for a crash (doesn't throw an error)
+    @test_throws(MethodError(ambig, (UInt8(1), Int(2)), get_world_counter()),
+                 ccall(cf, Int, (UInt8, Int), 1, 2))
+    @test_throws(ErrorException("no unique matching method found for the specified argument types"),
+                 which(ambig, (UInt8, Int)))
+    @test length(code_typed(ambig, (UInt8, Int))) == 0
+end
 
 # Method overwriting doesn't destroy ambiguities
 @test_throws MethodError ambig(2, 0x03)
@@ -145,7 +151,7 @@ ambs = detect_ambiguities(Ambig5)
 
 # Test that Core and Base are free of ambiguities
 # not using isempty so this prints more information when it fails
-@test detect_ambiguities(Core, Base; imported=true, ambiguous_bottom=false) == []
+@test detect_ambiguities(Core, Base; imported=true, recursive=true, ambiguous_bottom=false) == []
 # some ambiguities involving Union{} type parameters are expected, but not required
 @test !isempty(detect_ambiguities(Core, Base; imported=true, ambiguous_bottom=true))
 
@@ -181,8 +187,8 @@ let ms = methods(amb_4).ms
     @test Base.isambiguous(ms[3], ms[4])
 end
 
-g16493{T<:Number}(x::T, y::Integer) = 0
-g16493{T}(x::Complex{T}, y) = 1
+g16493(x::T, y::Integer) where {T<:Number} = 0
+g16493(x::Complex{T}, y) where {T} = 1
 let ms = methods(g16493, (Complex, Any))
     @test length(ms) == 1
     @test first(ms).sig == (Tuple{typeof(g16493), Complex{T}, Any} where T)
@@ -191,8 +197,8 @@ end
 # issue #17350
 module Ambig6
 struct ScaleMinMax{To,From} end
-map1{To<:Union{Float32,Float64},From<:Real}(mapi::ScaleMinMax{To,From}, val::From) = 1
-map1{To<:Union{Float32,Float64},From<:Real}(mapi::ScaleMinMax{To,From}, val::Union{Real,Complex}) = 2
+map1(mapi::ScaleMinMax{To,From}, val::From) where {To<:Union{Float32,Float64},From<:Real} = 1
+map1(mapi::ScaleMinMax{To,From}, val::Union{Real,Complex}) where {To<:Union{Float32,Float64},From<:Real} = 2
 end
 
 @test isempty(detect_ambiguities(Ambig6))
@@ -209,17 +215,19 @@ struct MyArray{T,N} <: AbstractArray{T,N}
     data::Array{T,N}
 end
 
-foo{T,N}(::Type{Array{T,N}}, A::MyArray{T,N}) = A.data
-foo{T<:AbstractFloat,N}(::Type{Array{T,N}}, A::MyArray{T,N}) = A.data
-foo{S<:AbstractFloat,N,T<:AbstractFloat}(::Type{Array{S,N}}, A::AbstractArray{T,N}) = copy!(Array{S}(size(A)), A)
-foo{S<:AbstractFloat,N,T<:AbstractFloat}(::Type{Array{S,N}}, A::MyArray{T,N}) = copy!(Array{S}(size(A)), A.data)
+foo(::Type{Array{T,N}}, A::MyArray{T,N}) where {T,N} = A.data
+foo(::Type{Array{T,N}}, A::MyArray{T,N}) where {T<:AbstractFloat,N} = A.data
+foo(::Type{Array{S,N}}, A::MyArray{T,N}) where {S<:AbstractFloat,N,T<:AbstractFloat} =
+    copyto!(Array{S}(undef, unsize(A)), A.data)
+foo(::Type{Array{S,N}}, A::AbstractArray{T,N}) where {S<:AbstractFloat,N,T<:AbstractFloat} =
+    copyto!(Array{S}(undef, size(A)), A)
 end
 
 @test isempty(detect_ambiguities(Ambig17648))
 
 module Ambig8
 using Base: DimsInteger, Indices
-g18307{T<:Integer}(::Union{Indices,Dims}, I::AbstractVector{T}...) = 1
+g18307(::Union{Indices,Dims}, I::AbstractVector{T}...) where {T<:Integer} = 1
 g18307(::DimsInteger) = 2
 g18307(::DimsInteger, I::Integer...) = 3
 end
@@ -230,7 +238,7 @@ catch err
     if isa(err, MethodError)
         error("Test correctly returned a MethodError, please change to @test_throws MethodError")
     else
-        rethrow(err)
+        rethrow()
     end
 end
 
@@ -244,5 +252,60 @@ end
 @test length(detect_ambiguities(Ambig9, ambiguous_bottom=false)) == 0
 @test length(detect_ambiguities(Ambig9, ambiguous_bottom=true)) == 1
 @test length(detect_ambiguities(Ambig9)) == 0
+
+# issue #25341
+module M25341
+_totuple(::Type{Tuple{Vararg{E}}}, itr, s...) where {E} = E
+end
+@test length(detect_unbound_args(M25341; recursive=true)) == 1
+
+# Test that Core and Base are free of UndefVarErrors
+# not using isempty so this prints more information when it fails
+@testset "detect_unbound_args in Base and Core" begin
+    # TODO: review this list and remove everything between test_broken and test
+    let need_to_handle_undef_sparam =
+            Set{Method}(detect_unbound_args(Core; recursive=true))
+        pop!(need_to_handle_undef_sparam, which(Core.Compiler.eltype, Tuple{Type{Tuple{Any}}}))
+        @test_broken need_to_handle_undef_sparam == Set()
+        pop!(need_to_handle_undef_sparam, which(Core.Compiler._cat, Tuple{Any, AbstractArray}))
+        pop!(need_to_handle_undef_sparam, first(methods(Core.Compiler.same_names)))
+        pop!(need_to_handle_undef_sparam, which(Core.Compiler.convert, Tuple{Type{Tuple{Vararg{Int}}}, Tuple{}}))
+        pop!(need_to_handle_undef_sparam, which(Core.Compiler.convert, Tuple{Type{Tuple{Vararg{Int}}}, Tuple{Int8}}))
+        @test need_to_handle_undef_sparam == Set()
+    end
+    let need_to_handle_undef_sparam =
+            Set{Method}(detect_unbound_args(Base; recursive=true))
+        pop!(need_to_handle_undef_sparam, which(Base._totuple, (Type{Tuple{Vararg{E}}} where E, Any, Any)))
+        pop!(need_to_handle_undef_sparam, which(Base.eltype, Tuple{Type{Tuple{Any}}}))
+        pop!(need_to_handle_undef_sparam, first(methods(Base.same_names)))
+        @test_broken need_to_handle_undef_sparam == Set()
+        pop!(need_to_handle_undef_sparam, which(Base._cat, Tuple{Any, AbstractArray}))
+        pop!(need_to_handle_undef_sparam, which(Base.byteenv, (Union{AbstractArray{Pair{T}, 1}, Tuple{Vararg{Pair{T}}}} where T<:AbstractString,)))
+        pop!(need_to_handle_undef_sparam, which(Base._cat, (Any, SparseArrays._TypedDenseConcatGroup{T} where T)))
+        pop!(need_to_handle_undef_sparam, which(Base.float, Tuple{AbstractArray{Union{Missing, T},N} where {T, N}}))
+        pop!(need_to_handle_undef_sparam, which(Base.convert, Tuple{Type{Union{Missing, T}} where T, Any}))
+        pop!(need_to_handle_undef_sparam, which(Base.promote_rule, Tuple{Type{Union{Nothing, S}} where S, Type{T} where T}))
+        pop!(need_to_handle_undef_sparam, which(Base.promote_rule, Tuple{Type{Union{Missing, S}} where S, Type{T} where T}))
+        pop!(need_to_handle_undef_sparam, which(Base.promote_rule, Tuple{Type{Union{Missing, Nothing, S}} where S, Type{T} where T}))
+        pop!(need_to_handle_undef_sparam, which(Base.zero, Tuple{Type{Union{Missing, T}} where T}))
+        pop!(need_to_handle_undef_sparam, which(Base.one, Tuple{Type{Union{Missing, T}} where T}))
+        pop!(need_to_handle_undef_sparam, which(Base.oneunit, Tuple{Type{Union{Missing, T}} where T}))
+        pop!(need_to_handle_undef_sparam, which(Base.convert, (Type{Union{Some{T}, Nothing}} where T, Some)))
+        pop!(need_to_handle_undef_sparam, which(Base.convert, (Type{Union{T, Nothing}} where T, Some)))
+        pop!(need_to_handle_undef_sparam, which(Base.convert, Tuple{Type{Tuple{Vararg{Int}}}, Tuple{}}))
+        pop!(need_to_handle_undef_sparam, which(Base.convert, Tuple{Type{Tuple{Vararg{Int}}}, Tuple{Int8}}))
+        pop!(need_to_handle_undef_sparam, which(Base.convert, Tuple{Type{Union{Nothing,T}},Union{Nothing,T}} where T))
+        pop!(need_to_handle_undef_sparam, which(Base.convert, Tuple{Type{Union{Missing,T}},Union{Missing,T}} where T))
+        pop!(need_to_handle_undef_sparam, which(Base.convert, Tuple{Type{Union{Missing,Nothing,T}},Union{Missing,Nothing,T}} where T))
+        pop!(need_to_handle_undef_sparam, which(Base.promote_rule, Tuple{Type{Union{Nothing,T}},Type{Any}} where T))
+        pop!(need_to_handle_undef_sparam, which(Base.promote_rule, Tuple{Type{Union{Missing,T}},Type{Any}} where T))
+        pop!(need_to_handle_undef_sparam, which(Base.promote_rule, Tuple{Type{Union{Missing,Nothing,T}},Type{Any}} where T))
+        @test need_to_handle_undef_sparam == Set()
+    end
+end
+
+@testset "has_bottom_parameter with Union{} in tvar bound" begin
+    @test Base.has_bottom_parameter(Ref{<:Union{}})
+end
 
 nothing # don't return a module from the remote include

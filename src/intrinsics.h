@@ -12,6 +12,8 @@
     ADD_I(udiv_int, 2) \
     ADD_I(srem_int, 2) \
     ADD_I(urem_int, 2) \
+    ADD_I(add_ptr, 2) \
+    ADD_I(sub_ptr, 2) \
     ADD_I(neg_float, 1) \
     ADD_I(add_float, 2) \
     ADD_I(sub_float, 2) \
@@ -66,10 +68,6 @@
     ADD_I(sitofp, 2) \
     ADD_I(fptrunc, 2) \
     ADD_I(fpext, 2) \
-    /*  checked conversion */ \
-    ADD_I(checked_trunc_sint, 2) \
-    ADD_I(checked_trunc_uint, 2) \
-    ADD_I(check_top_bit, 1) \
     /*  checked arithmetic */ \
     ADD_I(checked_sadd_int, 2) \
     ADD_I(checked_uadd_int, 2) \
@@ -85,13 +83,11 @@
     ADD_I(abs_float, 1) \
     ADD_I(copysign_float, 2) \
     ADD_I(flipsign_int, 2) \
-    ADD_I(select_value, 3) \
     ADD_I(ceil_llvm, 1) \
     ADD_I(floor_llvm, 1) \
     ADD_I(trunc_llvm, 1) \
     ADD_I(rint_llvm, 1) \
     ADD_I(sqrt_llvm, 1) \
-    ALIAS(sqrt_llvm_fast, sqrt_llvm) \
     /*  pointer access */ \
     ADD_I(pointerref, 3) \
     ADD_I(pointerset, 4) \

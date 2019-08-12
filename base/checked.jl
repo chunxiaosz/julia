@@ -13,7 +13,7 @@ import Core.Intrinsics:
        checked_srem_int,
        checked_uadd_int, checked_usub_int, checked_umul_int, checked_udiv_int,
        checked_urem_int
-import Base: no_op_err, @_inline_meta
+import ..no_op_err, ..@_inline_meta, ..@_noinline_meta
 
 # define promotion behavior for checked operations
 checked_add(x::Integer, y::Integer) = checked_add(promote(x,y)...)
@@ -60,13 +60,9 @@ brokenSignedInt = Union{}
 brokenUnsignedInt = Union{}
 brokenSignedIntMul = Int128
 brokenUnsignedIntMul = UInt128
-if Core.sizeof(Ptr{Void}) == 4
+if Core.sizeof(Ptr{Cvoid}) == 4
     brokenSignedIntMul = Union{brokenSignedIntMul, Int64}
     brokenUnsignedIntMul = Union{brokenUnsignedIntMul, UInt64}
-end
-if llvm_version < 30500
-    brokenSignedIntMul = Union{brokenSignedIntMul, Int8}
-    brokenUnsignedIntMul = Union{brokenUnsignedIntMul, UInt8}
 end
 const BrokenSignedInt = brokenSignedInt
 const BrokenUnsignedInt = brokenUnsignedInt
@@ -90,16 +86,18 @@ The overflow protection may impose a perceptible performance penalty.
 function checked_neg(x::T) where T<:Integer
     checked_sub(T(0), x)
 end
+throw_overflowerr_negation(x) = (@_noinline_meta;
+    throw(OverflowError(Base.invokelatest(string, "checked arithmetic: cannot compute -x for x = ", x, "::", typeof(x)))))
 if BrokenSignedInt != Union{}
 function checked_neg(x::BrokenSignedInt)
     r = -x
-    (x<0) & (r<0) && throw(OverflowError())
+    (x<0) & (r<0) && throw_overflowerr_negation(x)
     r
 end
 end
 if BrokenUnsignedInt != Union{}
 function checked_neg(x::T) where T<:BrokenUnsignedInt
-    x != 0 && throw(OverflowError())
+    x != 0 && throw_overflowerr_negation(x)
     T(0)
 end
 end
@@ -117,7 +115,7 @@ function checked_abs end
 
 function checked_abs(x::SignedInt)
     r = ifelse(x<0, -x, x)
-    r<0 && throw(OverflowError())
+    r<0 && throw(OverflowError(string("checked arithmetic: cannot compute |x| for x = ", x, "::", typeof(x))))
     r
  end
 checked_abs(x::UnsignedInt) = x
@@ -152,6 +150,9 @@ end
 end
 
 
+throw_overflowerr_binaryop(op, x, y) = (@_noinline_meta;
+    throw(OverflowError(Base.invokelatest(string, x, " ", op, " ", y, " overflowed for type ", typeof(x)))))
+
 """
     Base.checked_add(x, y)
 
@@ -162,7 +163,7 @@ The overflow protection may impose a perceptible performance penalty.
 function checked_add(x::T, y::T) where T<:Integer
     @_inline_meta
     z, b = add_with_overflow(x, y)
-    b && throw(OverflowError())
+    b && throw_overflowerr_binaryop(:+, x, y)
     z
 end
 
@@ -219,7 +220,7 @@ The overflow protection may impose a perceptible performance penalty.
 function checked_sub(x::T, y::T) where T<:Integer
     @_inline_meta
     z, b = sub_with_overflow(x, y)
-    b && throw(OverflowError())
+    b && throw_overflowerr_binaryop(:-, x, y)
     z
 end
 
@@ -284,7 +285,7 @@ The overflow protection may impose a perceptible performance penalty.
 function checked_mul(x::T, y::T) where T<:Integer
     @_inline_meta
     z, b = mul_with_overflow(x, y)
-    b && throw(OverflowError())
+    b && throw_overflowerr_binaryop(:*, x, y)
     z
 end
 
